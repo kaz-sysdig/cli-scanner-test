@@ -1,18 +1,40 @@
-name: Docker Image CI
+name: Build and Scan
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-
-  build:
-
+  build-and-scan:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+      # This step checks out a copy of your repository.
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t sysdig-cli-scanner-test/my-vuln-application:latest .
+
+      - name: Scan my-vuln-application
+        id: scan
+        uses: sysdiglabs/scan-action@v6
+        with:
+          # Tag of the image to analyse
+          image-tag: sysdig-cli-scanner-test/my-vuln-application:latest
+          # API token for Sysdig Scanning auth
+          sysdig-secure-url: https://app.us4.sysdig.com
+          sysdig-secure-token: ${{ secrets.KUBELAB_SECURE_API_TOKEN }}
+          stop-on-failed-policy-eval: true
+          stop-on-processing-error: true
+
+
+      - name: Upload SARIF file
+        if: success() || failure() # Upload results regardless previous step fails
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ github.workspace }}/sarif.json
+
+      - name: Push to registry
+        run: |
+          docker push sysdig-cli-scanner-test/my-vuln-application:latest
